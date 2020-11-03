@@ -31,8 +31,7 @@ class Test(unittest.TestCase):
     def setUpClass(cls):
         SCENARIO('''
         Create a contract from template, then build and deploy it.
-        Also, initialize the token and run a couple of transfers between different accounts.
-        ''')
+         ''')
         reset()
         create_master_account("MASTER")
 
@@ -70,7 +69,7 @@ class Test(unittest.TestCase):
         COMMENT('''
         LIKE Action: Test02 - Fail - Missing User (also add diff type, float, int for name)
                     Expectation: Fail
-                    * not 100% on usage of self.asserttraises function
+                    * not 100% on usage of self.assertraises function
         ''')
         with self.assertRaises(MissingRequiredAuthorityError):
             HOST.push_action(
