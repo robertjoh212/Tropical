@@ -1,111 +1,211 @@
-import sys
+''An example of functional test.
+Note that the declarations
+    `
+    MASTER = MasterAccount()
+    HOST = Account()
+    CHARLES = Account()
+    BABBAGE = Account()
+    CAROL = Account()
+    `
+are abundant: they are in place to satisfy the linter, whu complains about
+dynamically created objects. Test cases are written in the style for EOSFactory and have not yet been executed.
+'''
+import unittest
 from eosfactory.eosf import *
 
-verbosity([Verbosity.INFO, Verbosity.OUT, Verbosity.DEBUG])
+verbosity([Verbosity.INFO, Verbosity.OUT, Verbosity.TRACE, Verbosity.DEBUG])
 
-CONTRACT_WORKSPACE = sys.path[0] + "/../"
+CONTRACT_WORKSPACE = "/home/rob/eosfactory/contracts/tropical"
 
 # Actors of the test:
 MASTER = MasterAccount()
 HOST = Account()
-User1 = Account()
-User2 = Account()
+CHARLES = Account()
+BABBAGE = Account()
+CAROL = Account()
 
+class Test(unittest.TestCase):
+    '''Unittest class definition.
+    '''
+    @classmethod
+    def setUpClass(cls):
+        SCENARIO('''
+        Create a contract from template, then build and deploy it.
+        Also, initialize the token and run a couple of transfers between different accounts.
+        ''')
+        reset()
+        create_master_account("MASTER")
 
-def test():
-    SCENARIO('''
-    Initialize the token and run a couple of transfers between different accounts.
-    ''')
-    reset()
-    create_master_account("MASTER")
+        COMMENT('''
+        Create test accounts:
+        ''')
+        create_account("CHARLES", MASTER)
+        create_account("BABBAGE", MASTER)
+        create_account("CAROL", MASTER)
 
-    COMMENT('''
-    Build & deploy the contract:
-    ''')
-    create_account("HOST", MASTER)
-    smart = Contract(HOST, CONTRACT_WORKSPACE)
-    smart.build(force=False)
-    smart.deploy()
+    def test_functionality(self):
 
-    COMMENT('''
-    Create test accounts:
-    ''')
-    create_account("ALICE", MASTER)
-    create_account("BOB", MASTER)
-    create_account("CAROL", MASTER)
+        COMMENT('''
+        Create, build and deploy the contract:
+        ''')
+        create_account("HOST", MASTER)
+        smart = Contract(HOST, project_from_template(
+            CONTRACT_WORKSPACE, template="Tropical", remove_existing=True))
+        smart.build()
+        smart.deploy()
 
-    COMMENT('''
-    Initialize the token and send some tokens to one of the accounts:
-    ''')
+        COMMENT('''
+        LIKE Action: Test01 - Positive Flow
+                    Expectation: Pass with user name as like on property
+        ''')
+        HOST.push_action(
+            "like",
+            {
+                "user": CHARLES,
+             },
+            force_unique=True,
+            permission=(CHARLES, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
 
-    HOST.push_action(
-        "create",
-        {
-            "issuer": MASTER,
-            "maximum_supply": "1000000000.0000 EOS",
-            "can_freeze": "0",
-            "can_recall": "0",
-            "can_whitelist": "0"
-        },
-        permission=[(MASTER, Permission.OWNER), (HOST, Permission.ACTIVE)])
-
-    HOST.push_action(
-        "issue",
-        {
-            "to": ALICE, "quantity": "100.0000 EOS", "memo": ""
-        },
-        permission=(MASTER, Permission.ACTIVE))
-
-    COMMENT('''
-    Execute a series of transfers between the accounts:
-    ''')
-
-    HOST.push_action(
-        "transfer",
-        {
-            "from": ALICE, "to": CAROL,
-            "quantity": "25.0000 EOS", "memo":""
-        },
-        permission=(ALICE, Permission.ACTIVE))
-
-    HOST.push_action(
-        "transfer",
-        {
-            "from": CAROL, "to": BOB, 
-            "quantity": "11.0000 EOS", "memo": ""
-        },
-        permission=(CAROL, Permission.ACTIVE))
-
-    HOST.push_action(
-        "transfer",
-        {
-            "from": CAROL, "to": BOB, 
-            "quantity": "2.0000 EOS", "memo": ""
-        },
-        permission=(CAROL, Permission.ACTIVE))
-
-    HOST.push_action(
-        "transfer",
-        {
-            "from": BOB, "to": ALICE,
-            "quantity": "2.0000 EOS", "memo":""
-        },
-        permission=(BOB, Permission.ACTIVE))
-
-    COMMENT('''
-    Verify the outcome:
-    ''')
-
-    table_alice = HOST.table("accounts", ALICE)
-    table_bob = HOST.table("accounts", BOB)
-    table_carol = HOST.table("accounts", CAROL)
-
-    assert(table_alice.json["rows"][0]["balance"] == '77.0000 EOS')
-    assert(table_bob.json["rows"][0]["balance"] == '11.0000 EOS')
-    assert(table_carol.json["rows"][0]["balance"] == '12.0000 EOS')
-
-    stop()
-
+        COMMENT('''
+        LIKE Action: Test02 - Fail - Missing User (also add diff type, float, int for name)
+                    Expectation: Fail
+                    * not 100% on usage of self.asserttraises function
+        ''')
+        with self.assertRaises(MissingRequiredAuthorityError):
+            HOST.push_action(
+                "like", {"None":}, permission=( None, Permission.ACTIVE))
+        
+        COMMENT('''
+        CHECK2FA Action: Test01 - Pass - Positive Flow
+                        Expectation: Pass
+        ''')
+        HOST.push_action(
+            "check2fa",
+            {
+                "user": CHARLES,
+                "property": BOARDWALK,
+                "server_key": 'Public key of server',
+                "user_key": 'Public key of user CHARLES'
+                "server_auth": 'signature from server_key'
+                "bearer_auth": 'signature of user_key'                 
+             },
+            force_unique=True,
+            permission=(CHARLES, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+        
+        COMMENT('''
+        CHECK2FA Action: Test02 - Iterate with missing/incorrect values for each parameter (type,float, int, string)
+                        Expectation: Fail 2FA check, any one incorrect parameter will fail the action
+        ''')
+        HOST.push_action(
+            "check2fa",
+            {
+                "user": 'Invalid User',
+                "property": 'Invalid Property',
+                "server_key": 'Incorrect Public key of server',
+                "user_key": 'Incorrect Public key of user CHARLES'
+                "server_auth": 'Incorrect signature from server_key'
+                "bearer_auth": 'Incorrect signature of user_key'                 
+             },
+            force_unique=True,
+            permission=('Invalid User', Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+        
+        
+        COMMENT('''
+        setsrvkey Action: Test01 - Pass - Positive Flow
+                        Expectation: Pass
+        ''')
+        HOST.push_action(
+            "setsrvkey",
+            {
+                "server_key": Server ID               
+             },
+            force_unique=True,
+            permission=(_self, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+        
+        COMMENT('''
+        setsrvkey Action: Test02 - Incorrect Servier Key
+                        Expectation: Fail
+        ''')
+        HOST.push_action(
+            "setsrvkey",
+            {
+                "server_key": Incorrect Server ID
+             },
+            force_unique=True,
+            permission=(_self, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+       
+        
+        COMMENT('''
+        CHECK2FA Action: Test01 - Positive Flow
+                        Expectation: Pass
+        ''')
+        HOST.push_action(
+            "check2fa",
+            {
+                "user": CHARLES,
+                "property": BOARDWALK,
+                "server_key": 'Public key of server',
+                "user_key": 'Public key of user CHARLES'
+                "server_auth": 'signature from server_key'
+                "bearer_auth": 'signature of user_key'                 
+             },
+            force_unique=True,
+            permission=(CHARLES, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+       
+        COMMENT('''
+        CHECK2FA Action: Test02 - Iterate with missing/incorrect values for each parameter (type,float, int, string)
+                        Expectation: Fail CHECK2FA check, any one incorrect parameter will fail the action
+        ''')
+        HOST.push_action(
+            "check2fa",
+            {
+                "user": 'Invalid User',
+                "property": Invalid Property,
+                "server_key": 'Incorrect Public key of server',
+                "user_key": 'Incorrect Public key of user CHARLES'
+                "server_auth": 'Incorrect signature from server_key'
+                "bearer_auth": 'Incorrectsignature of user_key'                 
+             },
+            force_unique=True,
+            permission=(CHARLES, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+        
+        COMMENT('''
+        RENT Action: Test01 - Pass - Positive Flow
+        ''')
+        HOST.push_action(
+            "rent",
+            {
+                "user": CHARLES,
+                "property": BOARDWALK,            
+             },
+            force_unique=True,
+            permission=(CHARLES, Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+       
+       
+        COMMENT('''
+        RENT Action: Test02 - Iterate with assersions of incorrect data for action, since internal variables second_factor_params, get_action and server_key
+                    require internal assersions to be used to change values to incorrect values (not certain of correct syntax)
+        ''')
+        HOST.push_action(
+            "check2fa",
+            {
+                "user": 'Invalid User',
+                "property": 'Invalid Property,                
+             },
+            force_unique=True,
+            permission=('Invalid User', Permission.ACTIVE))
+        logger.DEBUG(HOST.action.act)
+  @classmethod
+    def tearDownClass(cls):
+        stop()       
 
 if __name__ == "__main__":
-    test()
+    unittest.main()
